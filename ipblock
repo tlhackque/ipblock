@@ -1,0 +1,350 @@
+#!/bin/bash
+
+# Copyright (C) 2017 Timothe Litt litt at acm ddot org
+
+# Completely & quickly block specific ip address(es)
+
+VERSION="1.0"
+
+SELF="`basename $0`"
+
+# Read any configuration file
+
+OPTIONS=
+
+[ -f /etc/default/$SELF.conf ]   && eval $( sed -e'/^ *OPTIONS=/!d' /etc/default/$SELF.conf )
+[ -f /etc/sysconfig/$SELF.conf ] && eval $( sed -e'/^ *OPTIONS=/!d' /etc/sysconfig/$SELF.conf )
+
+[ -n "$OPTIONS" ] && set -- $OPTIONS "$@"
+
+# Set default symbols
+
+BlackList="BlackList"
+Chain="INPUT"
+DateFormat="+%a %d-%b-%Y %T %Z"
+
+function displayHelp {
+    cat <<EOF
+Completely block IP address(es) with iptables
+
+Used to quickly block an attacker by host name or ip address.  Not
+persistent across reboots.
+
+Usage: $SELF [options] [addresses]
+
+    -4        IPv4 addresses
+    -6        IPv6 addresses
+    -v        Verbose output
+
+    -A        Add IP addresses to block list (default if address specified)
+    -R        Remove IP addresses from block list
+    -F        Flush block list
+    -L        List currently blocked IP addresses and last seen time (default)
+    -S file   Save current addresses as a script
+    -X        Disable ipblock and remove rule.  Does not fluah list.
+    -V        Display version
+
+    -D fmt    Date format (strftime) (Default is '%a %d-%b-%Y %T %Z'), null for ctime
+
+    -C:chain  Specify chain to hook (default is INPUT)
+    -N:table  Recent table name that maintains list. (Default is BlackList)
+              IPv6 adds '6' to the specified name (Thus, IPv6 default is BlackList6)
+
+If neither -4 nor -6 is specified:
+    If a numeric address is specified, the address family is used.
+    Otherwise, the default is -4
+
+-L and -S ignore -4 & -6; they access all tables present.
+
+If a hostname is specrified, only the selected address family is blocked.  If a
+host has both an IPv4 and an IPv6 address, two ipblock commands must be used.
+
+CAUTION: No checks are performed on the specified address; you can block systems
+         on your local network, or even the local host itself.
+
+Maintains an ip_recent list - does not reload rules.
+
+Installs a single rule at the start of the specified chain, if not already present.
+Installing rule does not flush an existing list.
+
+You can change the default options by specifying OPTIONS in
+/etc/sysconfig/$SELF or /etc/default/$SELF  In OPTIONS, values can not include spaces.
+Use underscore (_) instead. Currently, this only applies to -D.
+
+EOF
+    return 0
+}
+
+IPV=
+ACTION=
+DEBUG=
+V=
+
+while getopts "46AC:dD:hFLN:RS:vXV" opt; do
+    case $opt in
+        4)
+            IPV="4"
+            ;;
+        6)
+            IPV="6"
+            ;;
+        C)
+            Chain="$OPTARG"
+            ;;
+        A)
+            ACTION="add"
+            ;;
+	d)
+	    DEBUG="Y"
+            V="Y"
+	    ;;
+        D)
+            if [ -n "$OPTARG" ]; then
+                DateFormat="+$( echo "$OPTARG" | sed -e's/_/ /g' )"
+            else
+                DateFormat=
+            fi
+            ;;
+	h)
+	    displayHelp
+	    exit 0
+	    ;;
+        F)
+            ACTION="flush"
+            ;;
+        L)
+            ACTION="list"
+            ;;
+        N)
+            BlackList="$OPTARG"
+            ;;
+        R)
+            ACTION="remove"
+            ;;
+        S)
+            ACTION="save"
+            SCRIPT="$OPTARG"
+            ;;
+        v)
+            V="y"
+            ;;
+        X)
+            ACTION="disable"
+            ;;
+        V)
+            echo "$SELF V$VERSION"
+            exit 0
+            ;;
+	*)
+	    echo "$SELF -h for usage" >&2
+	    exit 1
+	    ;;
+    esac
+done
+shift $(( OPTIND - 1 ))
+
+if [ -z "$ACTION" ]; then
+    if [ -n "$1" ]; then
+        ACTION="add"
+    else
+        ACTION="list"
+    fi
+fi
+
+if [ -z "$IPV" ]; then
+    if [ -z "$1" ]; then
+        IPV="4"
+    else
+        if [[ "$1" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]; then # IPv4 numeric
+            IPV="4"
+        elif [[ "$1" =~ [:] ]] && [[ "$1"  =~ ^[0-9a-zA-Z:]+$ ]]; then # IPv6 numeric
+            IPV="6"
+        else
+            IPV="4"
+        fi
+    fi
+fi
+
+IPT="iptables"
+BlackBase="$BlackList"
+if [ "$IPV" == "6" ]; then
+    IPT="ip6tables"
+    BlackList="${BlackList}6"
+fi
+
+if [ ! which $IPT >/dev/null 2>&1 ]; then
+    echo "$SELF: $IPT does not exist." >&2
+    exit 0
+fi
+
+# Should there be a --seconds n --reap option to lockout for specified time?
+# N.B. This would make disabling more complex; each --seconds value needs a unique rule.
+
+RULE="$Chain -m recent --name $BlackList --update --rsource -j DROP"
+
+if [ "$ACTION" == "disable" ]; then
+    $IPT -D $RULE >/dev/null 2>&1
+    exit $?
+fi
+
+if ! $IPT -C $RULE >/dev/null 2>&1 ; then
+    if $IPT -I $RULE ; then
+        [ -n "$V" ] && echo "Installed IPv$IPV input rule"
+        [ -n "$DEBUG" ] && echo "  $IPT -I $RULE"
+    else
+        exit $?
+    fi
+fi
+
+# Detect version of "recent" module
+
+if [ -d /proc/net/ipt_recent ]; then
+    # Older
+    ProcRecent="/proc/net/ipt_recent"
+    IPTadd=
+    IPTclear="clear"
+    [ -n "$DEBUG" ] && echo "Detected ipt_recent"
+elif [ -d /proc/net/xt_recent ]; then
+    #newer
+    ProcRecent="/proc/net/xt_recent"
+    IPTadd="+"
+    IPTclear="/"
+    [ -n "$DEBUG" ] && echo "Detected xt_recent"
+else
+    echo "$SELF: Unable to determine version of packet filter's 'recent' module" >&2
+    exit 1
+fi
+
+if [ "$ACTION" == "save" ]; then
+    cat >"$SCRIPT" <<EOF
+#!/bin/bash
+
+# Auto-generated by $SELF V$VERSION
+
+EOF
+    PROG="`readlink -en $0`"
+    if [ -f $ProcRecent/$BlackBase ]; then
+        cat $ProcRecent/$BlackBase | while read LINE; do
+            echo "$PROG -4 `echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`" >>"$SCRIPT"
+        done
+    fi
+    if [ -f $ProcRecent/${BlackBase}6 ]; then
+        cat $ProcRecent/${BlackBase}6 | while read LINE; do
+            echo "$PROG -6 `echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`" >>"$SCRIPT"
+        done
+    fi
+    echo "# EOF" >>"$SCRIPT"
+    chmod +x $SCRIPT
+
+    [ -n "$V" ] && echo "Wrote `readlink -en $SCRIPT`"
+
+    exit 0
+fi
+
+if [ "$ACTION" == "list" ]; then
+    # ticks/sec
+    TICKS=$( sed -e'/^ *CONFIG_HZ=/!d' -e's/^ *CONFIG_HZ=//' /boot/config-$(uname -r) )
+    if [ -z "$TICKS" ]; then
+        echo "Unable to extract CONFIG_HZ from /boot/config-$(uname -r)" >&2
+        exit 1
+    fi
+    [ -n "$DEBUG" ] && $IPT -nvL $Chain --line-numbers
+
+    LT=
+    [ -f $ProcRecent/$BlackBase ] && LT="$ProcRecent/$BlackBase"
+    [ -f $ProcRecent/${BlackBase}6 ] && LT="$LT $ProcRecent/${BlackBase}6"
+    [ -z "$LT" ] && exit 1
+
+    cat $LT | (
+        TOT=0
+        #     6fff:ffff:ffff:ffff:6fff:ffff:ffff:ffff/128
+        Dots=".................................................."
+        while read LINE ; do
+            TOT=$(( $TOT + 1 ))
+            IP="`echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`"
+            # Last seen in jiffies
+            SEEN="$( echo "$LINE" | sed -e's/.*last_seen: *\([0-9][0-9]*\) .*$/\1/' )"
+            # Now in jiffies
+            JIFF="$( sed -e'/^jiffies:/!d' -e's/^jiffies: *//' /proc/timer_list )"
+            # Now in seconds
+            NOW="`date -u +%s`"
+            # Convert SEEN to seconds since epoch
+            SSE=$(( $NOW - ( ( ( $JIFF - $SEEN ) + ( $TICKS / 2 ) ) / $TICKS ) ))
+            # Format date as text
+            if [ -n "$DateFormat" ]; then
+                DATE="$( date -d@$SSE "$DateFormat" )"
+            else # Use default (ctime) format
+                DATE="$( date -d@$SSE )"
+            fi
+            [ -n "$DEBUG" ] && echo "IP: $IP NOW: $NOW JIFF: $JIFF SEEN: $SEEN TICKS: $TICKS DATE: $DATE"
+
+            echo "$IP $( expr substr $Dots 1 $( expr length $Dots - length $IP ) ) $DATE"
+        done
+
+        if [ -n "$V" ]; then
+            if [ $TOT -eq 0 ]; then
+                echo "No blocked addresses"
+            elif [ $TOT -eq 1 ]; then
+                echo "1 blocked address"
+            else
+                echo "$TOT blocked addresses"
+            fi
+        fi
+    )
+    exit
+fi
+
+if [ "$ACTION" == "flush" ]; then
+    echo "$IPTclear" >$ProcRecent/$BlackList
+    [ -n "$V" ] && echo "Flushed block list"
+    exit
+fi
+
+while [ -n "$1" ]; do
+    [ -n "$DEBUG" ] && echo "Processing $1"
+    h=
+    if [ "$IPV" == "4" ]; then                                     # IPv4 mode
+        if [[ "$1" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]; then # IPv4 numeric
+            i="$1"
+            if [ -n "$V" ]; then
+                h="`/usr/bin/host $1 | sed -e'/[.]in-addr[.]arpa domain name pointer /!d' -e's/.*[.]in-addr[.]arpa domain name pointer \(.*\)/\1/'`"
+                [ -n "$h" ] || h="[no hostname]"
+            fi
+        else                                                       # IPv4 hostname
+            i="`/usr/bin/host $1 | sed -e'/ has address /!d' -e's/.*has address \(.*\)/\1/'`"
+            if [ -z "$i" ]; then
+                echo "$1 has no IPv4 address"
+                shift
+                continue;
+            fi
+            h="$1"
+        fi
+    elif [[ "$1" =~ [:] ]] && [[ "$1"  =~ ^[0-9a-zA-Z:]+$ ]]; then # IPv6 numeric
+        i="$1"
+        if [ -n "$V" ]; then
+            h="`/usr/bin/host $i | sed -e'/[.]ip6[.]arpa domain name pointer /!d' -e's/.*ip6[.]arpa domain name pointer \(.*\)/\1/'`"
+            [ -n "$h" ] || h="[no hostname]"
+        fi
+    else                                                           # IPv6 hostname
+        i="`/usr/bin/host $1 | sed -e'/ has IPv6 address /!d' -e's/.*has IPv6 address \(.*\)/\1/'`"
+        if [ -z "$i" ]; then
+            echo "$1 has no IPv6 address"
+            shift
+            continue;
+        fi
+        h="$1"
+    fi
+    shift
+
+    if [ "$ACTION" == "add" ]; then
+        for I in $i; do
+            echo "$IPTadd$I" >$ProcRecent/$BlackList
+            [ -n "$V" ] && echo "Added $h $I"
+        done
+    else
+        for I in $i; do
+            echo "-$I" >$ProcRecent/$BlackList
+            [ -n "$V" ] && echo "Removed $h $I"
+        done
+    fi
+done
