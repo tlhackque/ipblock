@@ -4,7 +4,7 @@
 
 # Completely & quickly block specific ip address(es)
 
-VERSION="1.002"
+VERSION="1.003"
 
 SELF="`basename $0`"
 
@@ -192,6 +192,7 @@ if ! $IPT -C $RULE >/dev/null 2>&1 ; then
         [ -n "$V" ] && echo "Installed IPv$IPV input rule"
         [ -n "$DEBUG" ] && echo "  $IPT -I $RULE"
     else
+        [ -n "$DEBUG" ] && echo "  $IPT -I $RULE"
         exit $?
     fi
 fi
@@ -216,6 +217,8 @@ else
 fi
 
 if [ "$ACTION" == "save" ]; then
+    export LC_ALL=C
+
     function save () {
         cat <<EOF
 #!/bin/bash
@@ -225,13 +228,21 @@ if [ "$ACTION" == "save" ]; then
 EOF
         PROG="`readlink -en $0`"
         if [ -f $ProcRecent/$BlackBase ]; then
-            cat $ProcRecent/$BlackBase | while read LINE; do
-                echo "$PROG -4 `echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`"
+            ( cat $ProcRecent/$BlackBase | while read LINE; do
+                    echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'
+                done ) |
+            sort -u -t . -k1,1n -k2,2n -k3,3n -k4,4n |
+            while read SRT; do
+                echo "$PROG -4 $SRT"
             done
         fi
         if [ -f $ProcRecent/${BlackBase}6 ]; then
-            cat $ProcRecent/${BlackBase}6 | while read LINE; do
-                echo "$PROG -6 `echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`"
+            ( cat $ProcRecent/${BlackBase}6 | while read LINE; do
+                    echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'
+                done ) |
+            sort -u -t : -f -k1,1 -k2,2 -k3,3 -k4,4 -k5,5 -k6,6 -k7,7 -k8,8 |
+            while read SRT; do
+                echo "$PROG -6 $SRT"
             done
         fi
         echo "# EOF"
