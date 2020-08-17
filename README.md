@@ -2,7 +2,7 @@
 
 Quickly (and temporarily) block an IP address
 
-Copyright (C) 2017, 2018, 2019 Timothe Litt
+Copyright (C) 2017, 2018, 2019, 2020 Timothe Litt
 
 When your machine is under attack from an unexpected source, the last thing that you want to do is remember the `iptables` syntax for adding an immediate blocking rule.
 
@@ -13,8 +13,8 @@ When your machine is under attack from an unexpected source, the last thing that
 All packets from that address will be dropped.
 
 `ipblock` only adds a single rule to your `iptables` and/or `ip6tables` rulesets, no
-matter how many addresses are blocked.  This rule is inserted at the top of the chain,
-thus taking precedence over any other exceptions.
+matter how many addresses (up to the ipt_recent limit) are blocked.  This rule is
+inserted at the top of the chain, thus taking precedence over any other exceptions.
 
 The rule is only added the first time that `ipblock` is run, so your `iptables` rules are not reloaded.
 
@@ -52,7 +52,7 @@ Make sure that the directory containing `ipblock` is in your **PATH**
 Read the disclaimer before running the `ipblock` command.
 
 ## License and Disclaimer
-Copyright (c) 2017, 2018, 2019 Timothe Litt
+Copyright (c) 2017, 2018, 2019, 2020 Timothe Litt
 
 This is free software; the author disclaims all responsibility for its use, reliability and consequences.  The name of the author may not be used to endorse any product, but must be retained in the documentation and code.  Any modifications must be clearly documented and attributed, and are the responsibility of their author.
 
