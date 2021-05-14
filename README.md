@@ -52,7 +52,7 @@ Make sure that the directory containing `ipblock` is in your **PATH**
 Read the disclaimer before running the `ipblock` command.
 
 ## License and Disclaimer
-Copyright (c) 2017, 2018, 2019, 2020 Timothe Litt
+Copyright (c) 2017, 2018, 2019, 2020, 2021 Timothe Litt
 
 This is free software; the author disclaims all responsibility for its use, reliability and consequences.  The name of the author may not be used to endorse any product, but must be retained in the documentation and code.  Any modifications must be clearly documented and attributed, and are the responsibility of their author.
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Copyright (C) 2017, 2018, 2020 Timothe Litt litt at acm ddot org
+# Copyright (C) 2017, 2018, 2020, 2021 Timothe Litt litt at acm ddot org
 
 # Completely & quickly block specific ip address(es)
 
-VERSION="1.004"
+VERSION="1.005"
 
 SELF="`basename $0`"
 
@@ -317,6 +317,17 @@ if [ "$ACTION" == "list" ]; then
         while read LINE ; do
             TOT=$(( $TOT + 1 ))
             IP="`echo "$LINE" | sed -e's/^src=\([^ ]*\) .*$/\1/'`"
+            HN="`2>/dev/null host $IP`"
+            if [ "$?" -eq 0 ]; then
+                HN="`echo "$HN" | sed -e's/^.*\.arpa domain name pointer \(.*\).$/\1/'`"
+                if [ -n "$HN" ]; then
+                    HN=" ($HN)"
+                else
+                    HN=
+                fi
+            else
+                HN=
+            fi
             # Last seen in jiffies
             SEEN="$( echo "$LINE" | sed -e's/.*last_seen: *\([0-9][0-9]*\) .*$/\1/' )"
             # Now in jiffies
@@ -331,9 +342,9 @@ if [ "$ACTION" == "list" ]; then
             else # Use default (ctime) format
                 DATE="$( date -d@$SSE )"
             fi
-            [ -n "$DEBUG" ] && echo "IP: $IP NOW: $NOW JIFF: $JIFF SEEN: $SEEN TICKS: $TICKS DATE: $DATE"
+            [ -n "$DEBUG" ] && echo "IP: $IP NOW: $NOW JIFF: $JIFF SEEN: $SEEN TICKS: $TICKS DATE: $DATE$HN"
 
-            echo "$IP $( expr substr $Dots 1 $( expr length $Dots - length $IP ) ) $DATE"
+            echo "$IP $( expr substr $Dots 1 $( expr length $Dots - length $IP ) ) $DATE$HN"
         done
 
         if [ -n "$V" ]; then
