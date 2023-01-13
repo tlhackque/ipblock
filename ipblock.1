@@ -1,0 +1,239 @@
+.\" -*- mode: troff; coding: utf-8 -*-
+.TH "ipblock" "8" "16-Jan-2023"
+.SH
+IPBLOCK
+.LP
+Quickly (and temporarily) block an IP address
+.PP
+Copyright \(co 2017, 2018, 2019, 2020 Timothe Litt
+.PP
+When your machine is under attack from an unexpected source, the last thing that you want to
+do is remember the \fCiptables\fR syntax for adding an immediate blocking rule.
+.PP
+\fCipblock\fR addresses this issue.  Simply say  
+.PP
+\fCipblock 192.0.2.66\fR, \fCipblock 2001:db8::66\fR,  or \fCipblock evil.example.net\fR
+.PP
+All packets from that address will be dropped.
+.PP
+\fCipblock\fR only adds a single rule to your \fCiptables\fR and/or \fCip6tables\fR rulesets, no
+matter how many addresses (up to the ipt_recent limit) are blocked.  This rule is
+inserted at the top of the specified chain, thus taking precedence over any other exceptions.
+.PP
+The rule is only added the first time that \fCipblock\fR is run, so your \fCiptables\fR rules are not reloaded.
+.PP
+Additional command options allow you to:
+.IP "\(bu" 2
+Remove an address from the block list
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+Remove all addresses from the block list
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+List currently blocked addresses and last seen time
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+Save the current blocked address list as a script
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+Disable the block list (removing the extra \fCiptables\fR rule
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+Customize the table name and/or chain used
+.LP
+Options, including the desired chain, should be specified in the configuration file.
+.PP
+Completely block IP address(es) with iptables
+.PP
+Used to quickly block an attacker by host name or ip address.  Not
+persistent across reboots.
+.PP
+Usage: ipblock [options] [addresses]
+.LP
+.EX
+    -4        IPv4 addresses
+    -6        IPv6 addresses
+    -v        Verbose output
+    -n        Numeric output (don't lookup hostnames)
+
+    -A        Add IP addresses to block list (default if address specified)
+    -R        Remove IP addresses from block list
+    -F        Flush block list
+    -L        List currently blocked IP addresses and last seen time (default)
+    -S file   Save current addresses as a script.  (use - for stdout)
+    -a        With -S, add to existing output file
+    -T tps    Use tps as the jiffys/sec (only if /boot/config-<kernel> is not available.
+    -t        Estimate -T
+    -X        Disable ipblock and remove its rule.  Does not fluah list.
+    -V        Display version
+
+    -D fmt    Date format (strftime) (Default is '%a %d-%b-%Y %T %Z'), null for ctime
+
+    -C:chain  Specify chain to hook (default is INPUT)
+    -N:table  Recent table name that maintains list. (Default is BlackList)
+              IPv6 adds '6' to the specified name (Thus, IPv6 default is BlackList6)
+.EE
+.PP
+If neither -4 nor -6 is specified:
+If a numeric address is specified, the address family is used.
+Otherwise, the default is -4
+.PP
+Options -L and -S ignore -4 & -6; they access all tables present.
+.PP
+Option -T is only required when the kernel configuration file is not mounted on /boot, as
+happens with some VPS providers.  The value is the jiffies (ticks) per second of
+the kernel.  Typical values are 50, 60, 100, 250, 1000.  -t will, on an unloaded
+system, provide an estimate of the correct value.
+.PP
+If a hostname is specrified, only the selected address family is blocked.  If a
+host has both an IPv4 and an IPv6 address, two ipblock commands must be used.
+.PP
+CAUTION: No checks are performed on the specified address; you can block systems
+on your local network, or even the local host itself.
+.PP
+ipblock maintains an ip_recent list - does not reload rules.
+.PP
+ipblock installs a single rule at the start of the specified chain, if not already present.
+Installing the rule does not flush an existing list.
+.PP
+Note that the iptables \fIrecent\fR module limits the number of addresses that can
+be blocked.  The current limit is 500, but it can be changed with the
+module parameter ip_list_tot to modprobe.  Exceeding the limit will cause
+the oldest entries to be silently discarded.
+.PP
+You can change the default options by specifying OPTIONS in
+/etc/sysconfig/ipblock or /etc/default/ipblock  In OPTIONS, values that include spaces
+must be in single quotes (\(oq\(oq).  this only applies to -D.
+.PP
+To avoid locking yourself out, specify a chain that INPUT calls AFTER guard rules
+that protect your local network.  E.g. in your standard rules, start with:
+.RS
+.PP
+iptables -N BLOCKED
+.br
+iptables -A -i lo -j ACCEPT
+.br
+iptables -A INPUT -s \fImylan\fR,\fItrustedpublic\fR. -j ACCEPT
+.br
+iptables -A INPUT -j BLOCKED
+.RE
+.LP
+and in ipblock.conf
+.RS
+.PP
+OPTIONS=\(rq-C BLOCKED\(rq
+.RE
+.LP
+Copyright and license: see README.md, in the distribution kit.
+.SS
+Installation
+.LP
+Download the latest \fCVn.m-Release\fR tarball using the \fCtar.gz\fR link at \fBGitHub\fR <\fIhttps://github.com/tlhackque/ipblock/releases\fR>.
+.IP "\(bu" 2
+Do \fBnot\fR select the \fC.zip\fR file, as it does not preserve file permissions.
+.if n \
+.sp -1
+.if t \
+.sp -0.25v
+.IP "\(bu" 2
+Do \fBNOT\fR use the \fBClone or download\fR link on the main \fCipblock\fR page, as it provides a \fC.zip\fR file.
+.LP
+Unpack the \fCtar.gz\fR:
+.br
+tar -xzf ipblock<n>.<m>-Release.tar.gz
+.PP
+This will create a subdirectory named ipblock-<version>.
+.PP
+\fCcd\fR to that directory.
+.PP
+\fCmake install\fR
+.PP
+This will install ipblock in \fC/usr/local/bin\fR, which should be in your \fCPATH\fR
+.PP
+A \fCman\fR page will be installed in \fC/usr/local/share/man\fR.
+.PP
+You can install elsewhere by specifying a prefix, as in:
+.PP
+\fCmake prefix=/opt install\fR
+.PP
+See \fCMakefile\fR for other options.
+.PP
+Select an \fCiptables\fR chain and specify it in \fCipblock.conf\fR, which will be in \fC/etc/default\fR or \fC/etc/sysconfig\fR
+.PP
+To avoid locking yourself out, specify a chain that INPUT calls AFTER guard rules
+that protect your local network.  E.g. in your standard rules, start with:
+.RS
+.PP
+iptables -N BLOCKED
+.br
+iptables -A -i lo -j ACCEPT
+.br
+iptables -A INPUT -s \fImylan\fR,\fItrustedpublic\fR -j ACCEPT
+.br
+iptables -A INPUT -j BLOCKED
+.RE
+.LP
+and in \fCipblock.conf\fR
+.RS
+.PP
+OPTIONS=\(rq-C BLOCKED\(rq
+.RE
+.LP
+Read the disclaimer before running the \fCipblock\fR command.
+.SS
+De-installation
+.LP
+If you didn\(cqt save the unpacked tarball directory, re-create it following the
+directions for Installation.
+.PP
+Then
+.PP
+\fCcd\fR to that directory.
+.PP
+\fCmake uninstall\fR
+.PP
+If you selected a different installation directory, include the prefix, e.g.:
+.PP
+\fCmake prefix=/opt uninstall\fR
+.PP
+If you are uninstalling due to a defect or concern, feel free to create a
+bug report.
+.SS
+License and Disclaimer
+.LP
+Copyright \(co 2017, 2018, 2019, 2020, 2021, 2023 Timothe Litt
+.PP
+This is free software; the author disclaims all responsibility for its use, reliability and consequences.
+.PP
+The name of the author may not be used to endorse any product, but must be retained in the documentation and code.
+Any modifications must be clearly documented and attributed, and are the responsibility of their author.
+.PP
+This notice and the copyright statements must be retained in all copies (complete or partial) of this software and documentation.  See LICENSE for details.
+.PP
+\fBCAUTION:\fR No checks are performed on the specified address; you can block systems
+on your local network, or even the local host itself.
+.SS
+Bug reports and suggestions
+.LP
+Please raise bug reports or suggestions \fBon the issues tracker\fR <\fIhttp://github.com/tlhackque/ipblock/issues\fR>.
+.PP
+Always include \fCipblock -V\fR, \fCipblock -L\fR, \fCiptables -V\fR, and \fCip6tables -V\fR.  
+.PP
+If there is any error or warning message, include the full terminal session.
+.PP
+Suggestions and/or praise are also welcome.
