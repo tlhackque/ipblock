@@ -48,7 +48,7 @@ IPBLOCK := $(strip $(shell command -v ipblock))
 ifneq "$(strip $(shell [ -d '.git' ] && echo 'true' ))" ""
   gitcmd   := $(shell command -v git)
   ifneq "$(strip $(gitcmd))" ""
-    gittag := $(shell git tag | sort -t. -k 1.2,1n -k 2,2n -k 3,3n | tail -n1)
+    gittag := $(shell git tag --sort=version:refname | tail -n1)
   endif
 endif
 
@@ -62,7 +62,6 @@ kittypes := gz xz
 
 # Files to package
 
-#kitfiles := INSTALL README.md LICENSE Makefile ipblock config/ipblock.conf ipblock$(manext)
 kitfiles := README.md LICENSE Makefile ipblock config/ipblock.conf ipblock$(manext)
 
 .PHONY : all
@@ -81,7 +80,11 @@ ipblock$(man1ext) : README.md ipblock Makefile
 
 dist : signed-dist
 
-signed-dist : unsigned-dist $(foreach type,$(kittypes),$(kitname).tar.$(type).sig)
+ifeq ($(strip $(gitcmd)),)
+signed-dist : $(foreach type,$(kittypes),$(kitname).tar.$(type).sig)
+else
+signed-dist : $(foreach type,$(kittypes),$(kitname).tar.$(type).sig) .tagged
+endif
 
 unsigned-dist : $(foreach type,$(kittypes),$(kitname).tar.$(type))
 
@@ -147,21 +150,32 @@ define make_tar =
 %.tar.$(1) : $$(foreach f,$$(kitfiles), %/$$(f))
 	tar -caf $$@ $$^
 	@-chown $(kitowner) $$@
-ifneq ($(strip $(gitcmd)),)
-	@if git ls-files --others --exclude-standard --directory --no-empty-directory --error-unmatch -- ':/*' >/dev/null 2>/dev/null || \
-	    ! git diff-index --quiet HEAD || [ -n "$$$$(git diff --stat)" ]; then \
-	    echo " *** Not tagging V$(kitversion) because working directory is dirty"; echo ""; \
-	 elif [ "$(strip $(gittag))" == "V$(kitversion)" ]; then                \
-	    echo " *** Not tagging because V$(kitversion) already exists";      \
-	    echo "";                                                            \
-	 else                                                                   \
-	    git tag -f V$(kitversion) || true;                                  \
-	 fi
-endif
 
 endef
 
 $(foreach type,$(kittypes),$(eval $(call make_tar,$(type))))
+
+# Ensure that the release is tagged, providing the working directory is clean
+# Depends on everything in git (not just kitfiles), everything compiled, and
+# all the release kits.
+
+ifneq ($(strip $(gitcmd)),)
+.PHONY : tag
+
+tag : .tagged
+
+.tagged : $(shell git ls-tree --full-tree --name-only -r HEAD) unsigned-dist
+	@if git ls-files --others --exclude-standard --directory --no-empty-directory --error-unmatch -- ':/*' >/dev/null 2>/dev/null || \
+	    [ -n "$$(git diff --stat)" ]; then \
+	    echo " *** Not tagging V$(kitversion) because working directory is dirty"; echo ""; false ;\
+	 elif [ "$(strip $(gittag))" == "V$(kitversion)" ]; then                 \
+	    echo " *** Not tagging because V$(kitversion) already exists";       \
+	    echo ""; false;                                                      \
+	 else                                                                    \
+	    git tag V$(kitversion) && echo "Tagged as V$(kitversion)" | tee .tagged || true; \
+	 fi
+
+endif
 
 # create a detached signature for a file
 
