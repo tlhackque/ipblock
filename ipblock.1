@@ -1,5 +1,5 @@
 .\" -*- mode: troff; coding: utf-8 -*-
-.TH "ipblock" "8" "16-Jan-2023"
+.TH "ipblock" "8" "18-Jan-2023"
 .SH
 IPBLOCK
 .LP
@@ -77,23 +77,33 @@ Usage: ipblock [options] [addresses]
     -L        List currently blocked IP addresses and last seen time (default)
     -S file   Save current addresses as a script.  (use - for stdout)
     -a        With -S, add to existing output file
+    -r        With -S, save in raw format (just IP address list, e.g. for BlockCountries)
     -T tps    Use tps as the jiffys/sec (only if /boot/config-<kernel> is not available.
     -t        Estimate -T
-    -X        Disable ipblock and remove its rule.  Does not fluah list.
+    -X        Disable ipblock and remove its rule.  May not fluah list.
     -V        Display version
 
     -D fmt    Date format (strftime) (Default is '%a %d-%b-%Y %T %Z'), null for ctime
 
     -C:chain  Specify chain to hook (default is INPUT)
+    -c:chain  Specify chain for IPv6 hook (default is same name as IPv4)
     -N:table  Recent table name that maintains list. (Default is BlackList)
               IPv6 adds '6' to the specified name (Thus, IPv6 default is BlackList6)
+.EE
+.PP
+Most options should be placed in ipblock.conf, making use very simple.
+.PP
+The most common usage is
+.LP
+.EX
+ipblock address
 .EE
 .PP
 If neither -4 nor -6 is specified:
 If a numeric address is specified, the address family is used.
 Otherwise, the default is -4
 .PP
-Options -L and -S ignore -4 & -6; they access all tables present.
+Option -L ignores -4 & -6; it accesses all tables present.
 .PP
 Option -T is only required when the kernel configuration file is not mounted on /boot, as
 happens with some VPS providers.  The value is the jiffies (ticks) per second of
@@ -143,19 +153,23 @@ Copyright and license: see README.md, in the distribution kit.
 .SS
 Installation
 .LP
-Download the latest \fCVn.m-Release\fR tarball using the \fCtar.gz\fR link at \fBGitHub\fR <\fIhttps://github.com/tlhackque/ipblock/releases\fR>.
+Download the latest \fCipblock-n.m.o-Release\fR tarball and signature using
+the \fCtar.gz\fR or \fCtar.xz\fR and \fC.sig\fR links at
+\fBGitHub\fR <\fIhttps://github.com/tlhackque/ipblock/releases\fR>.
 .IP "\(bu" 2
-Do \fBnot\fR select the \fC.zip\fR file, as it does not preserve file permissions.
+Do \fBNOT\fR use the \fBClone or download\fR link on the main \fCipblock\fR page.
 .if n \
 .sp -1
 .if t \
 .sp -0.25v
 .IP "\(bu" 2
-Do \fBNOT\fR use the \fBClone or download\fR link on the main \fCipblock\fR page, as it provides a \fC.zip\fR file.
+Building or installing from source requires \fClowdown\fR
 .LP
-Unpack the \fCtar.gz\fR:
+Verify and npack the \fCtar.gz\fR:
 .br
-tar -xzf ipblock<n>.<m>-Release.tar.gz
+gpg \(enverify ipblock<n>.<m>-Release.tar.gz.sig && \e
+.br
+tar -xzf     ipblock<n>.<m>-Release.tar.gz
 .PP
 This will create a subdirectory named ipblock-<version>.
 .PP

@@ -1,5 +1,7 @@
 # Copyright (C) 2023 Timothe Litt litt at acm ddot org
 
+# $Id$
+
 # Install targets - can override on command line
 
 # Note that DESTDIR is supported for staging environments
@@ -74,6 +76,14 @@ ipblock$(man1ext) : README.md ipblock Makefile
 	$(SED) -e's,^`ipblock -h` for complete help$$,./ipblock -h,e' $< | \
 	    $(LOWDOWN) -s -t man --parse-codeindent -M "title=ipblock" -M "date=$$(date -r ipblock +%d-%b-%Y)" -Msection=8 -o $@ -
 
+.PHONY : viewreadme viewman
+
+viewreadme : README.md
+	@LANG=C $(LOWDOWN) -s -t term --parse-codeindent $< | less
+
+viewman : ipblock$(man1ext)
+	@LANG=C less $<
+
 # Make tarball kits - various compressions
 
 .PHONY : dist unsigned-dist signed-dist
@@ -112,7 +122,7 @@ install_dirs := $(DESTDIR)$(bindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(confdir)
 install : ipblock ipblock$(man1ext) config/ipblock.conf installdirs
 	$(INSTALL_PROGRAM) ipblock $(DESTDIR)$(bindir)/ipblock
 	$(INSTALL_DATA) ipblock$(man1ext) $(DESTDIR)$(man1dir)/ipblock$(man1ext)
-	-if [ -f "$(confdir)/ipblock.conf" ]; then true ; else  $(INSTALL_DATA) config/ipblock.conf $(DESTDIR)$(confdir)/ipblock.conf; fi
+	-if [ -f "$(confdir)/ipblock.conf" ]; then $(INSTALL_DATA) config/ipblock.conf $(DESTDIR)$(confdir)/ipblock.conf.new ; else  $(INSTALL_DATA) config/ipblock.conf $(DESTDIR)$(confdir)/ipblock.conf; fi
 	@echo ""
 	@echo "Please read 'man 1 ipblock' before using the command'"
 
@@ -166,7 +176,7 @@ tag : .tagged
 
 .tagged : $(shell git ls-tree --full-tree --name-only -r HEAD) unsigned-dist
 	@if git ls-files --others --exclude-standard --directory --no-empty-directory --error-unmatch -- ':/*' >/dev/null 2>/dev/null || \
-	    [ -n "$$(git diff --stat)" ]; then \
+	    [ -n "$$(git diff --name-only)$$(git diff --name-only --staged)" ]; then \
 	    echo " *** Not tagging V$(kitversion) because working directory is dirty"; echo ""; false ;\
 	 elif [ "$(strip $(gittag))" == "V$(kitversion)" ]; then                 \
 	    echo " *** Not tagging because V$(kitversion) already exists";       \

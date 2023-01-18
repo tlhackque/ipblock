@@ -7,3 +7,4 @@
 *.sig
 ipblock-*
 *.tar *.tar.gz *.tar.xz *tar.lzop *.tar.lzma *.tar.Z *.tar.zst *.tar.bz *.tar.bz2
+.tagged

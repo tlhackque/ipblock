@@ -33,13 +33,16 @@ Options, including the desired chain, should be specified in the configuration f
 `ipblock -h` for complete help
 
 ## Installation
-Download the latest `Vn.m-Release` tarball using the `tar.gz` link at [GitHub](https://github.com/tlhackque/ipblock/releases).
+Download the latest `ipblock-n.m.o-Release` tarball and signature using
+the `tar.gz` or `tar.xz` and `.sig` links at
+[GitHub](https://github.com/tlhackque/ipblock/releases).
 
-- Do **not** select the `.zip` file, as it does not preserve file permissions.
-- Do **NOT** use the **Clone or download** link on the main `ipblock` page, as it provides a `.zip` file.
+- Do **NOT** use the **Clone or download** link on the main `ipblock` page.
+- Building or installing from source requires `lowdown`
 
-Unpack the `tar.gz`:  
-    tar -xzf ipblock&lt;n&gt;.&lt;m&gt;-Release.tar.gz
+Verify and npack the `tar.gz`:  
+    gpg --verify ipblock&lt;n&gt;.&lt;m&gt;-Release.tar.gz.sig && \\  
+    tar -xzf     ipblock&lt;n&gt;.&lt;m&gt;-Release.tar.gz
 
 This will create a subdirectory named ipblock-&lt;version&gt;.
 

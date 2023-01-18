@@ -8,7 +8,7 @@
 VERSION='$Id$'
 
 # shellcheck disable=SC2034 # used by Makefile
-RELEASE='1.6.0'
+RELEASE='1.7.0'
 
 SELF="$(basename "$0")"
 
@@ -16,7 +16,7 @@ function displayVersion() {
     if [[ "$VERSION" =~ ^'$''Id: '[[:xdigit:]]{24}([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})' $'$ ]]; then
         printf "$SELF version %s-%s-%s-%s\n%*s release %s\n" \
                "${BASH_REMATCH[-4]}" "${BASH_REMATCH[-3]}" "${BASH_REMATCH[-2]}" "${BASH_REMATCH[-1]}" "${#SELF}" "" "$RELEASE"
-        exit 0
+        return 0
     fi
     echo "$SELF version '$VERSION' - format error"
     exit 1
@@ -39,6 +39,7 @@ fi
 
 BlackList="BlackList"
 Chain="INPUT"
+Chain6=
 DateFormat="+%a %d-%b-%Y %T %Z"
 
 # NOTE: The help text below is automagically inserted into README.md
@@ -68,25 +69,33 @@ EOF
     -L        List currently blocked IP addresses and last seen time (default)
     -S file   Save current addresses as a script.  (use - for stdout)
     -a        With -S, add to existing output file
+    -r        With -S, save in raw format (just IP address list, e.g. for BlockCountries)
     -T tps    Use tps as the jiffys/sec (only if /boot/config-<kernel> is not available.
     -t        Estimate -T
-    -X        Disable ipblock and remove its rule.  Does not fluah list.
+    -X        Disable ipblock and remove its rule.  May not fluah list.
     -V        Display version
 
     -D fmt    Date format (strftime) (Default is '%a %d-%b-%Y %T %Z'), null for ctime
 
     -C:chain  Specify chain to hook (default is INPUT)
+    -c:chain  Specify chain for IPv6 hook (default is same name as IPv4)
     -N:table  Recent table name that maintains list. (Default is BlackList)
               IPv6 adds '6' to the specified name (Thus, IPv6 default is BlackList6)
 ```
 EOF
     cat <<EOF
 
+Most options should be placed in ${SELF}.conf, making use very simple.
+
+The most common usage is
+
+    $SELF address
+
 If neither -4 nor -6 is specified:
     If a numeric address is specified, the address family is used.
     Otherwise, the default is -4
 
-Options -L and -S ignore -4 & -6; they access all tables present.
+Option -L ignores -4 & -6; it accesses all tables present.
 
 Option -T is only required when the kernel configuration file is not mounted on /boot, as
 happens with some VPS providers.  The value is the jiffies (ticks) per second of
@@ -139,6 +148,7 @@ V=
 APPEND=
 TICKS=
 NOHOST=
+RAW=
 
 if [ -f "/sys/module/ipt_recent/parameters/ip_list_tot" ]; then
     MAXENT="$(cat /sys/module/ipt_recent/parameters/ip_list_tot)"
@@ -148,8 +158,7 @@ else
     MAXENT=100
 fi
 
-DD=
-while getopts "46AC:dD:hFLN:nRaS:tT:vXV-:" opt; do
+while getopts "46AC:c:dD:hFLN:nrRaS:tT:vXV-:" opt; do
     case $opt in
         4)
             IPV="4"
@@ -159,6 +168,9 @@ while getopts "46AC:dD:hFLN:nRaS:tT:vXV-:" opt; do
             ;;
         C)
             Chain="$OPTARG"
+            ;;
+        c)
+            Chain6="$OPTARG"
             ;;
         A)
             ACTION="add"
@@ -206,6 +218,9 @@ while getopts "46AC:dD:hFLN:nRaS:tT:vXV-:" opt; do
         a)
             APPEND="y"
             ;;
+        r)
+            RAW="y"
+            ;;
         v)
             V="y"
             ;;
@@ -214,10 +229,12 @@ while getopts "46AC:dD:hFLN:nRaS:tT:vXV-:" opt; do
             ;;
         V)
             displayVersion
+            exit 0
             ;;
         -)
             if [ "$OPTARG" == "version" ]; then
                 displayVersion
+                exit 0
             elif [ "$OPTARG" == 'help' ]; then
                  displayHelp
             else
@@ -254,17 +271,16 @@ if [ -z "$IPV" ]; then
         fi
     fi
 fi
-if [ "$IPV" == '4' ]; then
-    ProcMatch="/proc/net/ip_tables_matches"
-else
-    ProcMatch="/proc/net/ip6_tables_matches"
-fi
 
 IPT="iptables"
 BlackBase="$BlackList"
 if [ "$IPV" == "6" ]; then
     IPT="ip6tables"
     BlackList="${BlackList}6"
+    ProcMatch="/proc/net/ip6_tables_matches"
+    [ -n "$Chain6" ] && Chain="$Chain6"
+else
+    ProcMatch="/proc/net/ip_tables_matches"
 fi
 
 if ! command -v "$IPT" >/dev/null 2>&1 ; then
@@ -288,7 +304,10 @@ fi
 
 # shellcheck disable=SC2086 # RULE needs word splitting
 if ! $IPT -C $RULE >/dev/null 2>&1 ; then
-    if $IPT -I $RULE ; then
+    if [[ "$ACTION" =~ ^(flush|list|remove|save)$ ]]; then
+        [ -n "$V" ]     && echo "Not installed for IPv$IPV"
+        exit 0
+    elif $IPT -I $RULE ; then
         [ -n "$V" ]     && echo "Installed IPv$IPV input rule"
         [ -n "$DEBUG" ] && echo "  $IPT -I $RULE"
     else
@@ -351,61 +370,90 @@ fi
 if [ "$ACTION" == "save" ]; then
     export LC_ALL="C"
 
-    function save () {
-        cat <<EOF
+    function savelines() {
+        local v="$1" nohdr="$2" n=0
+
+        if [ -n "$RAW" ]; then
+            while IFS= read -r IP; do
+                echo "$IP"
+                ((++n))
+            done
+            [ -z "$nohdr" ] && echo "# Count = $n"
+            return 0;
+        fi
+
+        while IFS= read -r IP; do
+            if [[ $((n++ % 16)) == 0 ]]; then
+                printf "\n%s %s %s" "$PROG" "$v" "$IP"
+            else
+                printf " %s" "$IP"
+            fi
+        done
+        [[ $((n % 16)) != 0 ]] && printf "\n"
+        [ -z "$nohdr" ] && echo "# Count = $n"
+        return 0
+    }
+    function saveHdr () {
+        if [ -z "$RAW" ]; then
+            cat <<EOF
 #!/bin/bash
 
-# Auto-generated by $SELF V$VERSION
+EOF
+        fi
+        cat <<EOF
+# Auto-generated by $SELF $(displayVersion | head -n1) on $(date '+%d-%b-%Y %T')
 
 EOF
+    }
+    function save () {
+        local nohdr="$1"
+        [ -z "$nohdr" ] && saveHdr
         PROG="$(readlink -en "$0")"
-        if [ -f "$ProcRecent/$BlackBase" ]; then
+        if [ "$IPV" == "4" ] && [ -f "$ProcRecent/$BlackBase" ]; then
             # shellcheck disable=SC2002 # Redirecting input doesn't work here
             ( cat "$ProcRecent/$BlackBase" | while IFS= read -r LINE; do
                     sed -e's/^src=\([^ ]*\) .*$/\1/' <<<"$LINE"
                 done ) |
-            sort -u -t . -k1,1n -k2,2n -k3,3n -k4,4n |
-            while IFS= read -r SRT; do
-                echo "$PROG -4 $SRT"
-            done
+            sort -u -t . -k1,1n -k2,2n -k3,3n -k4,4n | savelines -4 "$nohdr"
         fi
 
-        if [ -f "$ProcRecent/${BlackBase}6" ]; then
+        if [ "$IPV" == "6" ] && [ -f "$ProcRecent/${BlackBase}6" ]; then
             # shellcheck disable=SC2002 # Redirecting input doesn't work here
             ( cat "$ProcRecent/${BlackBase}6" | while IFS= read -r LINE; do
                     sed -e's/^src=\([^ ]*\) .*$/\1/' <<<"$LINE"
                 done ) |
-            sort -u -t : -f -k1,1 -k2,2 -k3,3 -k4,4 -k5,5 -k6,6 -k7,7 -k8,8 |
-            while IFS= read -r SRT; do
-                echo "$PROG -6 $SRT"
-            done
+            sort -u -t : -f -k1,1 -k2,2 -k3,3 -k4,4 -k5,5 -k6,6 -k7,7 -k8,8 | savelines -6 "$nohdr"
         fi
-        echo "# EOF"
+        [ -z "$nohdr" ] && echo "# EOF"
     }
-    if [ "$SCRIPT" = '-' ]; then
-        save
+    if [ "${SCRIPT}" = '-' ]; then
+        save | grep -vP '^# Count = ([0-9]+).*$'
     else
-        if [ -n "$APPEND" ] && [ -f "$SCRIPT" ]; then
-            rm -f "$SCRIPT".tmp
-            mv "$SCRIPT" "$SCRIPT".tmp
-            cat >"$SCRIPT".tmph <<EOF
-#!/bin/bash
-
-# Auto-generated by $SELF V$VERSION
-
-EOF
-            save >>"$SCRIPT".tmp
-            grep -vh '^#' "$SCRIPT".tmp | sort -u | cat "$SCRIPT".tmph - >"$SCRIPT"
-            echo "# EOF" >>"$SCRIPT"
-            rm -f "$SCRIPT".tmp "$SCRIPT".tmph
+        if [ -n "$APPEND" ] && [ -f "${SCRIPT}" ]; then
+            rm -f "${SCRIPT}.tmp"
+            sed "${SCRIPT}" -Ee"/^#/d;/^\$/d;s,^[^ ]*/?${SELF}( +-[46])? *,,;;s/ /\n/g;" >"${SCRIPT}.tmp"
+            saveHdr >"${SCRIPT}"
+            RAW="y" save 'nohdr' >>"${SCRIPT}.tmp"
+            if [ "$IPV" == "4" ]; then
+                sort -u -t . -k1,1n -k2,2n -k3,3n -k4,4n "${SCRIPT}.tmp" | savelines -4 >>"${SCRIPT}"
+            else
+                sort -u -t : -f -k1,1 -k2,2 -k3,3 -k4,4 -k5,5 -k6,6 -k7,7 -k8,8 "${SCRIPT}.tmp" | savelines -6 >>"${SCRIPT}"
+            fi
+            echo "# EOF" >>"${SCRIPT}"
+            rm -f "${SCRIPT}.tmp"
         else
-            save >"$SCRIPT"
+            save >"${SCRIPT}"
         fi
-        chmod +x "$SCRIPT"
-        [ -n "$V" ] && echo "Wrote $(readlink -en "$SCRIPT")"
-        CNT="$( grep -c -- ' -4 \| -6 ' "$SCRIPT")"
+        if [ -z "$RAW" ]; then
+            chmod +x "${SCRIPT}"
+        else
+            chmod -x "${SCRIPT}"
+        fi
+        [ -n "$V" ] && echo "Wrote $(readlink -en "${SCRIPT}")"
+        CNT="$(sed "${SCRIPT}" -nEe's/^# Count = ([0-9]+).*$/\1/p')"
+        sed -i "${SCRIPT}" -Ee'/^# Count = ([0-9]+).*$/d'
         if [ "$CNT" -gt "$MAXENT" ]; then
-            echo "$(readlink -en "$SCRIPT") lists $CNT addresses, but only $MAXENT will be retained.  See -h for more information."
+            echo "$(readlink -en "${SCRIPT}") lists $CNT addresses, but only $MAXENT will be retained.  See -h for more information."
             exit 2
         fi
     fi
@@ -490,7 +538,7 @@ if [ "$ACTION" == "list" ]; then
             fi
             [ -n "$DEBUG" ] && echo "IP: $IP NOW: $NOW UP: $UPT TICKS: $TICKS SEEN: $SEEN SSE: $SSE DATE: $DATE$HN"
 
-            echo "$IP ${Dots:0:$(( ${#Dots} - ${#IP} ))} $DATE$HN"
+            echo "$IP ${Dots:${#IP}} $DATE$HN"
         done
 
         if [ -n "$V" ]; then
