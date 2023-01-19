@@ -18,7 +18,7 @@ confdir         := $(shell if [ -f "/etc/default/ipblock.conf" ]; then echo "/et
 	elif [ -f "/etc/sysconfig/ipblock.conf" ] || ! [ -d "/etc/default" ];       \
 	then echo "/etc/sysconfig"; \
 	else echo "/etc/default";  fi)
-INSTALL         := install
+INSTALL         := install -p
 INSTALL_PROGRAM := $(INSTALL)
 INSTALL_DATA    := $(INSTALL) -m 644
 

@@ -8,7 +8,7 @@
 VERSION='$Id$'
 
 # shellcheck disable=SC2034 # used by Makefile
-RELEASE='1.7.0'
+RELEASE='1.7.1'
 
 SELF="$(basename "$0")"
 
